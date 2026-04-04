@@ -46,6 +46,6 @@ Thumbs.db
 .coverage
 htmlcov/
 
-# Project specific
-uv.lock
+# Project specific (keep uv.lock for reproducibility)
 openenv_first_rl_proj.egg-info/
+openenv_code_assessment_env.egg-info/

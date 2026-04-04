@@ -239,211 +239,76 @@ Input: "20" → Output: "2,3,5,7,11,13,17,19"
 4. **Learn from Feedback**: Use partial credit signals to improve
 5. **Optimize for Speed**: Solve quickly to maximize problems per episode
 
-## License
+## Deployment
 
-BSD-style license - see LICENSE file for details.
-- Connecting to the environment
-- Container cleanup when you call `close()`
+### HuggingFace Spaces
 
-## Building the Docker Image
+Deployed at: [https://huggingface.co/spaces/TulasiSankar/code_assessment_env](https://huggingface.co/spaces/TulasiSankar/code_assessment_env)
 
-Before using the environment, you need to build the Docker image:
+Deploy or update using the `openenv push` command:
 
 ```bash
-# From project root
-docker build -t first_rl_proj-env:latest -f server/Dockerfile .
+openenv push --repo-id TulasiSankar/code_assessment_env
 ```
 
-## Deploying to Hugging Face Spaces
+### GitHub Repository
 
-You can easily deploy your OpenEnv environment to Hugging Face Spaces using the `openenv push` command:
-
-```bash
-# From the environment directory (where openenv.yaml is located)
-openenv push
-
-# Or specify options
-openenv push --namespace my-org --private
-```
-
-The `openenv push` command will:
-1. Validate that the directory is an OpenEnv environment (checks for `openenv.yaml`)
-2. Prepare a custom build for Hugging Face Docker space (enables web interface)
-3. Upload to Hugging Face (ensuring you're logged in)
-
-### Prerequisites
-
-- Authenticate with Hugging Face: The command will prompt for login if not already authenticated
-
-### Options
-
-- `--directory`, `-d`: Directory containing the OpenEnv environment (defaults to current directory)
-- `--repo-id`, `-r`: Repository ID in format 'username/repo-name' (defaults to 'username/env-name' from openenv.yaml)
-- `--base-image`, `-b`: Base Docker image to use (overrides Dockerfile FROM)
-- `--private`: Deploy the space as private (default: public)
-
-### Examples
-
-```bash
-# Push to your personal namespace (defaults to username/env-name from openenv.yaml)
-openenv push
-
-# Push to a specific repository
-openenv push --repo-id my-org/my-env
-
-# Push with a custom base image
-openenv push --base-image ghcr.io/meta-pytorch/openenv-base:latest
-
-# Push as a private space
-openenv push --private
-
-# Combine options
-openenv push --repo-id my-org/my-env --base-image custom-base:latest --private
-```
-
-After deployment, your space will be available at:
-`https://huggingface.co/spaces/<repo-id>`
-
-The deployed space includes:
-- **Web Interface** at `/web` - Interactive UI for exploring the environment
-- **API Documentation** at `/docs` - Full OpenAPI/Swagger interface
-- **Health Check** at `/health` - Container health monitoring
-- **WebSocket** at `/ws` - Persistent session endpoint for low-latency interactions
-
-## Environment Details
-
-### Action
-**FirstRlProjAction**: Contains a single field
-- `message` (str) - The message to echo back
-
-### Observation
-**FirstRlProjObservation**: Contains the echo response and metadata
-- `echoed_message` (str) - The message echoed back
-- `message_length` (int) - Length of the message
-- `reward` (float) - Reward based on message length (length × 0.1)
-- `done` (bool) - Always False for echo environment
-- `metadata` (dict) - Additional info like step count
-
-### Reward
-The reward is calculated as: `message_length × 0.1`
-- "Hi" → reward: 0.2
-- "Hello, World!" → reward: 1.3
-- Empty message → reward: 0.0
+Source code: [https://github.com/tulsishankarreddy/ReinforcementLearning](https://github.com/tulsishankarreddy/ReinforcementLearning)
 
 ## Advanced Usage
 
-### Connecting to an Existing Server
+### Connecting to Remote Server
 
-If you already have a First Rl Proj environment server running, you can connect directly:
+Connect to the deployed HuggingFace Space:
 
 ```python
-from first_rl_proj import FirstRlProjEnv
+from code_assessment_env import CodeAssessmentEnv, CodeAssessmentAction
 
-# Connect to existing server
-first_rl_projenv = FirstRlProjEnv(base_url="<ENV_HTTP_URL_HERE>")
-
-# Use as normal
-result = first_rl_projenv.reset()
-result = first_rl_projenv.step(FirstRlProjAction(message="Hello!"))
+# Connect to HuggingFace Space
+env = CodeAssessmentEnv(base_url="https://TulasiSankar-code-assessment-env.hf.space")
+result = env.reset()
+result = env.step(CodeAssessmentAction(answer="8"))
 ```
 
-Note: When connecting to an existing server, `first_rl_projenv.close()` will NOT stop the server.
+### Using Context Manager
 
-### Using the Context Manager
-
-The client supports context manager usage for automatic connection management:
+Automatic connection management:
 
 ```python
-from first_rl_proj import FirstRlProjAction, FirstRlProjEnv
+from code_assessment_env import CodeAssessmentEnv, CodeAssessmentAction
 
-# Connect with context manager (auto-connects and closes)
-with FirstRlProjEnv(base_url="http://localhost:8000") as env:
+with CodeAssessmentEnv.from_docker_image("code_assessment_env:latest").sync() as env:
     result = env.reset()
-    print(f"Reset: {result.observation.echoed_message}")
-    # Multiple steps with low latency
-    for msg in ["Hello", "World", "!"]:
-        result = env.step(FirstRlProjAction(message=msg))
-        print(f"Echoed: {result.observation.echoed_message}")
-```
-
-The client uses WebSocket connections for:
-- **Lower latency**: No HTTP connection overhead per request
-- **Persistent session**: Server maintains your environment state
-- **Efficient for episodes**: Better for many sequential steps
-
-### Concurrent WebSocket Sessions
-
-The server supports multiple concurrent WebSocket connections. To enable this,
-modify `server/app.py` to use factory mode:
-
-```python
-# In server/app.py - use factory mode for concurrent sessions
-app = create_app(
-    FirstRlProjEnvironment,  # Pass class, not instance
-    FirstRlProjAction,
-    FirstRlProjObservation,
-    max_concurrent_envs=4,  # Allow 4 concurrent sessions
-)
-```
-
-Then multiple clients can connect simultaneously:
-
-```python
-from first_rl_proj import FirstRlProjAction, FirstRlProjEnv
-from concurrent.futures import ThreadPoolExecutor
-
-def run_episode(client_id: int):
-    with FirstRlProjEnv(base_url="http://localhost:8000") as env:
-        result = env.reset()
-        for i in range(10):
-            result = env.step(FirstRlProjAction(message=f"Client {client_id}, step {i}"))
-        return client_id, result.observation.message_length
-
-# Run 4 episodes concurrently
-with ThreadPoolExecutor(max_workers=4) as executor:
-    results = list(executor.map(run_episode, range(4)))
-```
-
-## Development & Testing
-
-### Direct Environment Testing
-
-Test the environment logic directly without starting the HTTP server:
-
-```bash
-# From the server directory
-python3 server/first_rl_proj_environment.py
-```
-
-This verifies that:
-- Environment resets correctly
-- Step executes actions properly
-- State tracking works
-- Rewards are calculated correctly
-
-### Running Locally
-
-Run the server locally for development:
-
-```bash
-uvicorn server.app:app --reload
+    for i in range(12):  # Solve all problems
+        obs = result.observation
+        answer = solve(obs.problem_description, obs.test_case_input)
+        result = env.step(CodeAssessmentAction(answer=answer))
+        if result.done:
+            break
 ```
 
 ## Project Structure
 
 ```
-first_rl_proj/
-├── .dockerignore         # Docker build exclusions
-├── __init__.py            # Module exports
-├── README.md              # This file
-├── openenv.yaml           # OpenEnv manifest
-├── pyproject.toml         # Project metadata and dependencies
-├── uv.lock                # Locked dependencies (generated)
-├── client.py              # FirstRlProjEnv client
-├── models.py              # Action and Observation models
+code_assessment_env/
+├── .gitignore              # Git exclusions
+├── __init__.py             # Module exports (CodeAssessmentEnv, CodeAssessmentAction, CodeAssessmentObservation)
+├── README.md               # This file
+├── Dockerfile              # Multi-stage Docker build
+├── openenv.yaml            # OpenEnv manifest
+├── pyproject.toml          # Project metadata and dependencies
+├── requirements.txt        # Direct dependencies
+├── uv.lock                 # Locked dependencies
+├── client.py               # CodeAssessmentEnv client
+├── models.py               # CodeAssessmentAction and CodeAssessmentObservation
+├── demo.py                 # Interactive demo script
+├── inferency.py            # LLM inference script
 └── server/
-    ├── __init__.py        # Server module exports
-    ├── first_rl_proj_environment.py  # Core environment logic
-    ├── app.py             # FastAPI application (HTTP + WebSocket endpoints)
-    └── Dockerfile         # Container image definition
+    ├── __init__.py         # Server module exports
+    ├── code_assessment_environment.py  # Core environment logic with grading
+    └── app.py              # FastAPI application
 ```
+
+## License
+
+MIT License - see [LICENSE](LICENSE) file for details.
