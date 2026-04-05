@@ -53,11 +53,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from code_assessment_env import CodeAssessmentAction, CodeAssessmentEnv
-LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
-API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
+LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME", "code_assessment_env:latest")
+HF_TOKEN = os.getenv("HF_TOKEN")
 
-API_BASE_URL = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
-MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
+API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
+MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
 TASK_NAME = os.getenv("TASK_NAME", "code_output_assessment")
 BENCHMARK = os.getenv("BENCHMARK", "first_rl_proj")
 MAX_STEPS = 15
@@ -116,9 +116,9 @@ def log_step(step: int, action: str, reward: float, done: bool, error: Optional[
     )
 
 
-def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
+def log_end(success: bool, steps: int, rewards: List[float]) -> None:
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
-    print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
+    print(f"[END] success={str(success).lower()} steps={steps} rewards={rewards_str}", flush=True)
 
 
 def build_user_prompt(
@@ -149,6 +149,7 @@ def build_user_prompt(
 
 def get_model_answer(
     client: OpenAI,
+    history: List[dict],
     step: int,
     problem: str,
     test_input: str,
@@ -159,30 +160,36 @@ def get_model_answer(
     problems_solved: int
 ) -> str:
     user_prompt = build_user_prompt(step, problem, test_input, difficulty, feedback, is_correct, streak, problems_solved)
+    history.append({"role": "user", "content": user_prompt})
+
+    # Keep history manageable: system + last 10 turns
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}] + history[-10:]
+
     try:
         completion = client.chat.completions.create(
             model=MODEL_NAME,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt},
-            ],
+            messages=messages,
             temperature=TEMPERATURE,
             max_tokens=MAX_TOKENS,
             stream=False,
         )
         text = (completion.choices[0].message.content or "").strip()
-        return text if text else "0"
+        answer = text if text else "0"
     except Exception as exc:
         print(f"[DEBUG] Model request failed: {exc}", flush=True)
-        return "0"
+        answer = "0"
+
+    history.append({"role": "assistant", "content": answer})
+    return answer
 
 
 async def main() -> None:
-    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+    client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
 
     env = await CodeAssessmentEnv.from_docker_image(LOCAL_IMAGE_NAME)
 
     rewards: List[float] = []
+    history: List[dict] = []
     steps_taken = 0
     score = 0.0
     success = False
@@ -192,7 +199,7 @@ async def main() -> None:
     try:
         result = await env.reset()
         obs = result.observation
-        
+
         for step in range(1, MAX_STEPS + 1):
             if result.done:
                 break
@@ -200,6 +207,7 @@ async def main() -> None:
             # Get model's answer for the current problem
             answer = get_model_answer(
                 client=client,
+                history=history,
                 step=step,
                 problem=obs.problem_description,
                 test_input=obs.test_case_input,
@@ -238,7 +246,7 @@ async def main() -> None:
             await env.close()
         except Exception as e:
             print(f"[DEBUG] env.close() error (container cleanup): {e}", flush=True)
-        log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
+        log_end(success=success, steps=steps_taken, rewards=rewards)
 
 
 if __name__ == "__main__":

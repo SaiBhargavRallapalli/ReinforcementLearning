@@ -11,9 +11,10 @@ An RL environment that tests an agent's ability to solve coding problems
 across three difficulty levels with automated grading and reward shaping.
 """
 
+import difflib
 import random
 from uuid import uuid4
-from typing import Dict, List, Tuple, Literal
+from typing import Dict, List, Set, Tuple, Literal
 
 from openenv.core.env_server.interfaces import Environment
 from openenv.core.env_server.types import State
@@ -126,6 +127,7 @@ class CodeAssessmentEnvironment(Environment):
         self._problems_solved: int = 0
         self._current_streak: int = 0
         self._total_reward: float = 0.0
+        self._used_problems: Set[str] = set()
 
     def reset(self) -> CodeAssessmentObservation:
         """
@@ -139,9 +141,11 @@ class CodeAssessmentEnvironment(Environment):
         self._current_streak = 0
         self._total_reward = 0.0
         self._difficulty = "easy"
+        self._used_problems = set()
 
         # Select a random problem from the easy category
         self._current_problem = random.choice(PROBLEMS["easy"])
+        self._used_problems.add(self._current_problem["description"])
         self._current_test_case_idx = 0
 
         test_input, _ = self._current_problem["test_cases"][0]
@@ -246,14 +250,20 @@ class CodeAssessmentEnvironment(Environment):
         score = 0.0
         feedback = "✗ Incorrect."
 
-        # Check for numeric list answers (comma-separated numbers)
-        try:
-            if ',' in expected_clean or expected_clean.replace('-', '').isdigit():
+        # Check for numeric list answers (comma-separated numbers only)
+        is_numeric_expected = (
+            ',' in expected_clean
+            and all(x.strip().lstrip('-').isdigit() for x in expected_clean.split(',') if x.strip())
+        ) or (
+            expected_clean.lstrip('-').isdigit()
+        )
+
+        if is_numeric_expected:
+            try:
                 expected_nums = [int(x.strip()) for x in expected_clean.split(',') if x.strip()]
                 answer_nums = [int(x.strip()) for x in answer_clean.split(',') if x.strip()]
-                
+
                 if len(expected_nums) == len(answer_nums):
-                    # Calculate percentage of correct values
                     correct_count = sum(1 for e, a in zip(expected_nums, answer_nums) if e == a)
                     score = correct_count / len(expected_nums)
                     if score >= 0.8:
@@ -263,24 +273,15 @@ class CodeAssessmentEnvironment(Environment):
                     elif score > 0:
                         feedback = f"⚡ Some correct: {int(score*100)}%. Review the problem."
                 elif len(answer_nums) > 0:
-                    # Wrong length but has numbers - give format credit
                     score = 0.2
                     feedback = "⚡ Format is numeric, but count/values are wrong."
-        except (ValueError, AttributeError):
-            # Not a numeric answer, try string-based grading
-            pass
+            except (ValueError, AttributeError):
+                pass
 
         # String similarity for non-numeric answers
         if score == 0.0:
-            # Check length similarity
-            len_ratio = min(len(answer_clean), len(expected_clean)) / max(len(answer_clean), len(expected_clean), 1)
-            
-            # Character overlap
-            set_overlap = len(set(answer_clean) & set(expected_clean)) / max(len(set(expected_clean)), 1)
-            
-            # Combine metrics
-            similarity = (len_ratio * 0.3 + set_overlap * 0.7)
-            
+            similarity = difflib.SequenceMatcher(None, answer_clean, expected_clean).ratio()
+
             if similarity >= 0.7:
                 score = 0.6
                 feedback = f"⚡ Close! Similar to expected answer ({int(similarity*100)}% match)."
@@ -288,7 +289,6 @@ class CodeAssessmentEnvironment(Environment):
                 score = 0.3
                 feedback = f"⚡ Some similarity ({int(similarity*100)}%). Review requirements."
             elif ',' in expected and ',' in answer_clean:
-                # Has comma format like expected
                 score = 0.1
                 feedback = "⚡ Correct format style, but content is incorrect."
 
@@ -344,19 +344,28 @@ class CodeAssessmentEnvironment(Environment):
         """Advance to the next problem, increasing difficulty as needed."""
         # Move to next test case in current problem
         self._current_test_case_idx += 1
-        
+
         # If completed all test cases, select new problem
         if self._current_test_case_idx >= len(self._current_problem["test_cases"]):
             self._current_test_case_idx = 0
-            
+
             # Increase difficulty based on problems solved
             if self._problems_solved >= 8 and self._difficulty != "hard":
                 self._difficulty = "hard"
             elif self._problems_solved >= 4 and self._difficulty == "easy":
                 self._difficulty = "medium"
-            
-            # Select new random problem from current difficulty
-            self._current_problem = random.choice(PROBLEMS[self._difficulty])
+
+            # Select new random problem, avoiding repeats when possible
+            candidates = [
+                p for p in PROBLEMS[self._difficulty]
+                if p["description"] not in self._used_problems
+            ]
+            if not candidates:
+                # All used up — reset and allow repeats
+                self._used_problems = set()
+                candidates = PROBLEMS[self._difficulty]
+            self._current_problem = random.choice(candidates)
+            self._used_problems.add(self._current_problem["description"])
 
     @property
     def state(self) -> State:

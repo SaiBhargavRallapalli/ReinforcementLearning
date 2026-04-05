@@ -45,12 +45,12 @@ async def demo_local():
                 if problem_name in obs.problem_description:
                     try:
                         answer = solver(obs.test_case_input)
-                    except:
+                    except Exception:
                         answer = "0"
                     break
             
             # Submit answer
-            result = await env.step(FirstRlProjAction(answer=answer))
+            result = await env.step(CodeAssessmentAction(answer=answer))
             obs = result.observation
             
             print(f"\n{'=' * 60}")
@@ -122,7 +122,7 @@ async def demo_interactive():
     print("INTERACTIVE DEMO: Solve Problems Yourself!")
     print("=" * 60)
     
-    env = await FirstRlProjEnv.from_docker_image("first_rl_proj:latest")
+    env = await CodeAssessmentEnv.from_docker_image("code_assessment_env:latest")
     
     try:
         result = await env.reset()
@@ -146,7 +146,7 @@ async def demo_interactive():
                 break
             
             # Submit answer
-            result = await env.step(FirstRlProjAction(answer=answer))
+            result = await env.step(CodeAssessmentAction(answer=answer))
             obs = result.observation
             
             # Show results
