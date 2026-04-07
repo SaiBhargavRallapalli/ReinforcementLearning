@@ -6,7 +6,6 @@ MANDATORY
 - Defaults set only for API_BASE_URL and MODEL_NAME (not HF_TOKEN)
 - Must be named inference.py at repo root
 - Must use OpenAI client for all LLM calls
-- Connects to the environment server at localhost:8000 (started by container)
 
 STDOUT FORMAT
     [START] task=<task_name> env=<benchmark> model=<model_name>
@@ -16,13 +15,11 @@ STDOUT FORMAT
 
 import asyncio
 import os
+import sys
 import textwrap
 from typing import List, Optional
 
 from openai import OpenAI
-from dotenv import load_dotenv
-
-load_dotenv()
 
 from code_assessment_env import CodeAssessmentAction, CodeAssessmentEnv
 
@@ -31,16 +28,13 @@ if not HF_TOKEN:
     raise ValueError("HF_TOKEN environment variable is required but not set.")
 
 API_BASE_URL = os.getenv("API_BASE_URL", "https://api.openai.com/v1")
-MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
+MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4.1-mini")
 TASK_NAME = os.getenv("TASK_NAME", "ai_response_evaluation")
 BENCHMARK = os.getenv("BENCHMARK", "code_assessment_env")
 MAX_STEPS = 15
 TEMPERATURE = 0.2
 MAX_TOKENS = 200
-SUCCESS_SCORE_THRESHOLD = 0.5
-MAX_TOTAL_REWARD = 40.0
 
-# ─── System prompts per task ────────────────────────────────────────────────
 SYSTEM_PROMPTS = {
     "correctness_check": textwrap.dedent("""\
         You are an expert AI response evaluator.
@@ -104,7 +98,6 @@ SYSTEM_PROMPTS = {
 }
 
 
-# ─── Logging ────────────────────────────────────────────────────────────────
 def log_start(task: str, env: str, model: str) -> None:
     print(f"[START] task={task} env={env} model={model}", flush=True)
 
@@ -123,11 +116,11 @@ def log_end(success: bool, steps: int, rewards: List[float]) -> None:
     print(f"[END] success={str(success).lower()} steps={steps} rewards={rewards_str}", flush=True)
 
 
-# ─── Prompt building ───────────────────────────────────────────────────────
 def build_user_prompt(
     step: int,
     task_type: str,
-    scenario: str,
+    problem_description: str,
+    test_case_input: str,
     difficulty: str,
     feedback: str,
     is_correct: bool,
@@ -151,10 +144,12 @@ def build_user_prompt(
         profile = "USER PROFILE: " + " | ".join(profile_parts) + "\n\n"
 
     return textwrap.dedent(f"""\
-        Step {step}/15 | Task: {task_type} | Difficulty: {difficulty.upper()} | Solved: {problems_solved} | Streak: {streak}
+        Step {step}/{MAX_STEPS} | Task: {task_type} | Difficulty: {difficulty.upper()} | Solved: {problems_solved} | Streak: {streak}
+
+        INSTRUCTIONS: {problem_description}
 
         {profile}--- SCENARIO ---
-        {scenario}
+        {test_case_input}
         --- END SCENARIO ---
 
         Previous feedback: {status}
@@ -163,13 +158,13 @@ def build_user_prompt(
     """)
 
 
-# ─── LLM call ──────────────────────────────────────────────────────────────
 def get_model_answer(
     client: OpenAI,
     history: List[dict],
     step: int,
     task_type: str,
-    scenario: str,
+    problem_description: str,
+    test_case_input: str,
     difficulty: str,
     feedback: str,
     is_correct: bool,
@@ -180,7 +175,7 @@ def get_model_answer(
     user_context: Optional[str],
 ) -> str:
     user_prompt = build_user_prompt(
-        step, task_type, scenario, difficulty,
+        step, task_type, problem_description, test_case_input, difficulty,
         feedback, is_correct, streak, problems_solved,
         user_age, user_mood, user_context,
     )
@@ -206,7 +201,6 @@ def get_model_answer(
     return answer
 
 
-# ─── Main loop ──────────────────────────────────────────────────────────────
 async def main() -> None:
     client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
 
@@ -216,8 +210,8 @@ async def main() -> None:
     rewards: List[float] = []
     history: List[dict] = []
     steps_taken = 0
-    score = 0.0
     success = False
+    result = None
 
     log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
 
@@ -226,6 +220,8 @@ async def main() -> None:
         obs = result.observation
 
         for step in range(1, MAX_STEPS + 1):
+            steps_taken = step
+
             if result.done:
                 break
 
@@ -234,7 +230,8 @@ async def main() -> None:
                 history=history,
                 step=step,
                 task_type=obs.task_type,
-                scenario=obs.test_case_input,
+                problem_description=obs.problem_description,
+                test_case_input=obs.test_case_input,
                 difficulty=obs.difficulty,
                 feedback=obs.feedback,
                 is_correct=obs.is_correct,
@@ -249,34 +246,28 @@ async def main() -> None:
                 result = await env.step(CodeAssessmentAction(answer=answer))
                 obs = result.observation
             except Exception as exc:
-                log_step(step=step, action=answer[:60], reward=0.0, done=True, error=str(exc))
-                steps_taken = step
+                log_step(step=step, action=answer[:60], reward=0.05, done=True, error=str(exc))
                 break
 
-            reward = result.reward or 0.0
+            reward = result.reward if result.reward is not None else 0.05
             done = result.done
 
             rewards.append(reward)
-            steps_taken = step
-
-            action_str = f"{answer[:60]} | correct={obs.is_correct} | {obs.difficulty}"
-            log_step(step=step, action=action_str, reward=reward, done=done, error=None)
+            log_step(step=step, action=answer[:60], reward=reward, done=done, error=None)
 
             if done:
                 break
 
-        score = sum(rewards) / MAX_TOTAL_REWARD if MAX_TOTAL_REWARD > 0 else 0.0
-        score = min(max(score, 0.0), 1.0)
-        success = score >= SUCCESS_SCORE_THRESHOLD
+        success = bool(result is not None and result.done and obs.problems_solved > 0)
 
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"Episode error: {exc}", file=sys.stderr, flush=True)
 
     finally:
         try:
             await env.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"Close error: {exc}", file=sys.stderr, flush=True)
         log_end(success=success, steps=steps_taken, rewards=rewards)
 
 

@@ -685,13 +685,16 @@ class CodeAssessmentEnvironment(Environment):
     # Grading dispatch
     # ------------------------------------------------------------------
     def _grade(self, task_type: str, answer: str, problem: Dict) -> Tuple[bool, float, str]:
-        if task_type == "correctness_check":
-            is_correct, score, fb = self._grade_correctness(answer, problem)
-        elif task_type == "tone_appropriateness":
-            is_correct, score, fb = self._grade_tone(answer, problem)
-        else:
-            is_correct, score, fb = self._grade_multi_dimensional(answer, problem)
-        return is_correct, self._clamp(score), fb
+        try:
+            if task_type == "correctness_check":
+                is_correct, score, fb = self._grade_correctness(answer, problem)
+            elif task_type == "tone_appropriateness":
+                is_correct, score, fb = self._grade_tone(answer, problem)
+            else:
+                is_correct, score, fb = self._grade_multi_dimensional(answer, problem)
+            return is_correct, self._clamp(score), fb
+        except Exception as e:
+            return False, 0.05, f"Grading error: {str(e)}"
 
     # ── Task 1: Correctness Check ─────────────────────────────────────
     def _grade_correctness(self, answer: str, problem: Dict) -> Tuple[bool, float, str]:
@@ -729,17 +732,19 @@ class CodeAssessmentEnvironment(Environment):
         given_rating = parts[0] if parts else ""
         rating_match = expected_rating in given_rating or given_rating in expected_rating
 
-        # Parse issues
-        ALL_ISSUES = [
+        # Parse issues from comma-separated parts (skip first part which is the rating)
+        ALL_ISSUES = {
             "age-inappropriate", "too-technical", "insensitive",
             "tone-mismatch", "contains-pii", "harmful", "biased", "none",
-        ]
+        }
+        answer_parts = [p.strip() for p in cleaned.split(",")]
         found_issues: set = set()
-        for issue in ALL_ISSUES:
-            if issue in cleaned or issue.replace("-", " ") in cleaned:
-                found_issues.add(issue)
-        # Remove the rating word itself from issues if it crept in
-        found_issues -= {"appropriate", "needs-adjustment", "inappropriate"}
+        for part in answer_parts[1:]:  # skip the rating
+            normalized = part.strip()
+            if normalized in ALL_ISSUES:
+                found_issues.add(normalized)
+            elif normalized.replace(" ", "-") in ALL_ISSUES:
+                found_issues.add(normalized.replace(" ", "-"))
 
         # Score issues via F1
         if "none" in expected_issues:
