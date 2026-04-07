@@ -208,7 +208,14 @@ def get_model_answer(
 # ─── Main loop ──────────────────────────────────────────────────────────────
 async def main() -> None:
     client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
-    env = await CodeAssessmentEnv.from_docker_image(LOCAL_IMAGE_NAME)
+
+    # Connect to already-running server (validator provides ENV_URL),
+    # fall back to starting a Docker container for local testing.
+    env_url = os.getenv("ENV_URL")
+    if env_url:
+        env = CodeAssessmentEnv(base_url=env_url)
+    else:
+        env = await CodeAssessmentEnv.from_docker_image(LOCAL_IMAGE_NAME)
 
     rewards: List[float] = []
     history: List[dict] = []
@@ -242,8 +249,14 @@ async def main() -> None:
                 user_context=obs.user_context,
             )
 
-            result = await env.step(CodeAssessmentAction(answer=answer))
-            obs = result.observation
+            try:
+                result = await env.step(CodeAssessmentAction(answer=answer))
+                obs = result.observation
+            except Exception as exc:
+                print(f"[DEBUG] env.step() failed: {exc}", flush=True)
+                log_step(step=step, action=answer[:60], reward=0.0, done=True, error=str(exc))
+                steps_taken = step
+                break
 
             reward = result.reward or 0.0
             done = result.done
@@ -260,6 +273,9 @@ async def main() -> None:
         score = sum(rewards) / MAX_TOTAL_REWARD if MAX_TOTAL_REWARD > 0 else 0.0
         score = min(max(score, 0.0), 1.0)
         success = score >= SUCCESS_SCORE_THRESHOLD
+
+    except Exception as exc:
+        print(f"[DEBUG] Episode failed: {exc}", flush=True)
 
     finally:
         try:
