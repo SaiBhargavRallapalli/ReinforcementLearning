@@ -9,14 +9,26 @@ tasks:
   - id: correctness_check
     name: Correctness & Instruction Adherence
     difficulty: easy
-    grader: programmatic
+    grader:
+      type: programmatic
+      score_range:
+        min: 0.01
+        max: 0.99
 
   - id: tone_appropriateness
     name: Tone & Audience Appropriateness
     difficulty: medium
-    grader: programmatic
+    grader:
+      type: programmatic
+      score_range:
+        min: 0.01
+        max: 0.99
 
   - id: multi_dimensional
     name: Multi-dimensional Quality Scoring
     difficulty: hard
-    grader: programmatic
+    grader:
+      type: programmatic
+      score_range:
+        min: 0.01
+        max: 0.99
