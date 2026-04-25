@@ -4,8 +4,8 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-"""Code Assessment environment server components."""
+"""AI Response Evaluation environment server components."""
 
-from .code_assessment_environment import CodeAssessmentEnvironment
+from .ai_response_eval_environment import AIResponseEvalEnvironment
 
-__all__ = ["CodeAssessmentEnvironment"]
+__all__ = ["AIResponseEvalEnvironment"]

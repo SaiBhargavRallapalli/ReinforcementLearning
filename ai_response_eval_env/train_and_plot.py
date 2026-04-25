@@ -49,11 +49,11 @@ import numpy as np
 
 # ── Attempt to import environment client ────────────────────────────────────
 try:
-    from code_assessment_env import CodeAssessmentAction, CodeAssessmentEnv
+    from ai_response_eval_env import AIResponseEvalAction, AIResponseEvalEnv
     ENV_CLIENT_AVAILABLE = True
 except ImportError:
     ENV_CLIENT_AVAILABLE = False
-    print("[WARN] code_assessment_env not importable — will use mock data for plotting")
+    print("[WARN] ai_response_eval_env not importable — will use mock data for plotting")
 
 # ── Config ──────────────────────────────────────────────────────────────────
 LOG_DIR        = Path("reward_logs")
@@ -258,7 +258,7 @@ async def run_episode(episode_idx: int, use_llm: bool = False) -> Dict:
         task_rewards: {task_type: [rewards]},
     }
     """
-    env = CodeAssessmentEnv(base_url=ENV_URL)
+    env = AIResponseEvalEnv(base_url=ENV_URL)
 
     steps_data = []
     task_rewards: Dict[str, List[float]] = defaultdict(list)
@@ -314,7 +314,7 @@ async def run_episode(episode_idx: int, use_llm: bool = False) -> Dict:
                 answer = rule_based_answer(task_type, scenario, step + episode_idx * MAX_STEPS)
 
             try:
-                result = await env.step(CodeAssessmentAction(answer=answer))
+                result = await env.step(AIResponseEvalAction(answer=answer))
                 obs    = result.observation
             except Exception as e:
                 steps_data.append({
@@ -740,7 +740,7 @@ def main():
         print(f"[INFO] Loaded {len(episodes)} episodes from {LOG_FILE}")
     else:
         if not ENV_CLIENT_AVAILABLE:
-            print("[ERROR] code_assessment_env not available. Cannot run training.")
+            print("[ERROR] ai_response_eval_env not available. Cannot run training.")
             sys.exit(1)
         episodes = asyncio.run(train(args.episodes, use_llm=args.use_llm))
 

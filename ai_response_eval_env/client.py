@@ -12,28 +12,28 @@ from openenv.core import EnvClient
 from openenv.core.client_types import StepResult
 from openenv.core.env_server.types import State
 
-from .models import CodeAssessmentAction, CodeAssessmentObservation
+from .models import AIResponseEvalAction, AIResponseEvalObservation
 
 
-class CodeAssessmentEnv(
-    EnvClient[CodeAssessmentAction, CodeAssessmentObservation, State]
+class AIResponseEvalEnv(
+    EnvClient[AIResponseEvalAction, AIResponseEvalObservation, State]
 ):
     """
     Client for the AI Response Evaluation Environment.
 
     Example:
-        >>> env = await CodeAssessmentEnv.from_docker_image("code_assessment_env:latest")
+        >>> env = await AIResponseEvalEnv.from_docker_image("ai_response_eval_env:latest")
         >>> result = await env.reset()
         >>> print(result.observation.task_type)
-        >>> result = await env.step(CodeAssessmentAction(answer="incorrect, factual-error"))
+        >>> result = await env.step(AIResponseEvalAction(answer="incorrect, factual-error"))
     """
 
-    def _step_payload(self, action: CodeAssessmentAction) -> Dict:
+    def _step_payload(self, action: AIResponseEvalAction) -> Dict:
         return {"answer": action.answer}
 
-    def _parse_result(self, payload: Dict) -> StepResult[CodeAssessmentObservation]:
+    def _parse_result(self, payload: Dict) -> StepResult[AIResponseEvalObservation]:
         obs_data = payload.get("observation", {})
-        observation = CodeAssessmentObservation(
+        observation = AIResponseEvalObservation(
             problem_description=obs_data.get("problem_description", ""),
             difficulty=obs_data.get("difficulty", "easy"),
             test_case_input=obs_data.get("test_case_input", ""),

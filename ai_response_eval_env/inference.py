@@ -32,7 +32,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from code_assessment_env import CodeAssessmentAction, CodeAssessmentEnv
+from ai_response_eval_env import AIResponseEvalAction, AIResponseEvalEnv
 
 HF_TOKEN = os.getenv("HF_TOKEN")
 if not HF_TOKEN:
@@ -40,7 +40,7 @@ if not HF_TOKEN:
 
 API_BASE_URL = os.getenv("API_BASE_URL", "https://api.openai.com/v1")
 MODEL_NAME   = os.getenv("MODEL_NAME", "gpt-4.1-mini")
-BENCHMARK    = os.getenv("BENCHMARK", "code_assessment_env")
+BENCHMARK    = os.getenv("BENCHMARK", "ai_response_eval_env")
 
 MAX_STEPS            = 24   # synced with env MAX_STEPS
 TEMPERATURE_EASY     = 0.1   # Low temperature for deterministic easy/medium tasks
@@ -418,6 +418,9 @@ def build_user_prompt(
     hardest_missed_category: Optional[str] = None,
     expert_persona: Optional[str] = None,
     problem_generated: bool = False,
+    user_persona: Optional[str] = None,
+    risk_tier: Optional[str] = None,
+    forecast_fail_prob: Optional[float] = None,
 ) -> str:
     status = "CORRECT" if is_correct else feedback
 
@@ -425,6 +428,23 @@ def build_user_prompt(
     persona_note = ""
     if expert_persona and expert_persona in PERSONA_PROMPT_MODIFIERS:
         persona_note = PERSONA_PROMPT_MODIFIERS[expert_persona]
+
+    # User-side persona note (orthogonal to evaluator persona)
+    user_persona_note = ""
+    if user_persona:
+        user_persona_note = (
+            f"[USER PERSONA: {user_persona}] "
+            "Adapt your evaluation to the vulnerability and communication needs of this user.\n"
+        )
+
+    # Risk + forecast hint (helps the agent prioritise high-stakes scenarios)
+    risk_hint = ""
+    if risk_tier and risk_tier != "LOW":
+        risk_hint = f"[RISK TIER: {risk_tier}] "
+    if forecast_fail_prob is not None and forecast_fail_prob > 0.6:
+        risk_hint += f"[FORECAST: P(fail)={forecast_fail_prob:.2f} — read carefully] "
+    if risk_hint:
+        risk_hint += "\n"
 
     # Generated problem indicator
     gen_note = "[GENERATED PROBLEM — dynamically created for your weakness profile]\n" if problem_generated else ""
@@ -445,7 +465,7 @@ def build_user_prompt(
             analytics += f"You are most often wrong on the '{hardest_missed_category}' dimension."
 
     return textwrap.dedent(f"""\
-        {persona_note}{gen_note}Step {step}/{MAX_STEPS} | Task: {task_type}{lang_note} | Difficulty: {difficulty.upper()} | Solved: {problems_solved} | Streak: {streak}
+        {persona_note}{user_persona_note}{risk_hint}{gen_note}Step {step}/{MAX_STEPS} | Task: {task_type}{lang_note} | Difficulty: {difficulty.upper()} | Solved: {problems_solved} | Streak: {streak}
         INSTRUCTIONS: {problem_description}
         {profile}--- SCENARIO ---
         {test_case_input}
@@ -515,6 +535,9 @@ def get_model_answer(
     hardest_missed_category: Optional[str] = None,
     expert_persona: Optional[str] = None,
     problem_generated: bool = False,
+    user_persona: Optional[str] = None,
+    risk_tier: Optional[str] = None,
+    forecast_fail_prob: Optional[float] = None,
 ) -> str:
     user_prompt = build_user_prompt(
         step, task_type, problem_description, test_case_input, difficulty,
@@ -522,6 +545,7 @@ def get_model_answer(
         user_age, user_mood, user_context,
         language, task_completion_rate, hardest_missed_category,
         expert_persona, problem_generated,
+        user_persona, risk_tier, forecast_fail_prob,
     )
 
     # Adversarial task: don't pollute context with prior evaluation history
@@ -602,7 +626,7 @@ async def main() -> None:
         if not wait_for_server(env_url, timeout=30):
             print("Server failed to start", file=sys.stderr, flush=True)
 
-    env = CodeAssessmentEnv(base_url=env_url)
+    env = AIResponseEvalEnv(base_url=env_url)
     task_data: Dict[str, List[dict]] = {tid: [] for tid in TASK_IDS}
     history: List[dict] = []
 
@@ -636,10 +660,13 @@ async def main() -> None:
                 hardest_missed_category=getattr(obs, "hardest_missed_category", None),
                 expert_persona=getattr(obs, "current_expert_persona", None),
                 problem_generated=getattr(obs, "problem_generated", False),
+                user_persona=getattr(obs, "user_persona", None),
+                risk_tier=getattr(obs, "risk_tier", None),
+                forecast_fail_prob=getattr(obs, "forecast_fail_prob", None),
             )
 
             try:
-                result = await env.step(CodeAssessmentAction(answer=answer))
+                result = await env.step(AIResponseEvalAction(answer=answer))
                 obs = result.observation
             except Exception as exc:
                 if current_task in task_data:
@@ -657,6 +684,38 @@ async def main() -> None:
     except Exception as exc:
         print(f"Episode error: {exc}", file=sys.stderr, flush=True)
     finally:
+        # Emit advanced analytics summary (risk, coverage, forecast, RCA) if available
+        try:
+            run_summary = (obs.metadata or {}).get("run_summary") if obs else None
+        except Exception:
+            run_summary = None
+        if run_summary:
+            print("[ANALYTICS] " + "─" * 60, flush=True)
+            risk = run_summary.get("risk", {}) or {}
+            cov  = run_summary.get("coverage", {}) or {}
+            fc   = run_summary.get("forecast", {}) or {}
+            rca  = run_summary.get("rca", {}) or {}
+            print(
+                f"[RISK]     tier={risk.get('tier','LOW')} "
+                f"max={risk.get('max',0)} mean={risk.get('mean',0)} p95={risk.get('p95',0)} "
+                f"by_tier={risk.get('tier_counts',{})}",
+                flush=True,
+            )
+            print(
+                f"[COVERAGE] overall={cov.get('overall_pct',0)}% "
+                f"cells={cov.get('cells_tested',0)}/{cov.get('cells_total',0)} "
+                f"per_axis={cov.get('per_axis',{})}",
+                flush=True,
+            )
+            untested = cov.get("untested_top", [])
+            if untested:
+                print(f"[GAPS]     untested(top): {untested}", flush=True)
+            print(f"[FORECAST] per_task_pfail={fc}", flush=True)
+            print(f"[RCA]      {rca.get('summary','')}", flush=True)
+            for c in rca.get("clusters", []):
+                print(f"[CLUSTER]  {c.get('name')}: {c.get('evidence')} -> {c.get('remediation')}", flush=True)
+            print("[ANALYTICS] " + "─" * 60, flush=True)
+
         try:
             await env.close()
         except Exception as exc:

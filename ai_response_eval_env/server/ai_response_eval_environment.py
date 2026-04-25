@@ -49,9 +49,30 @@ from openenv.core.env_server.interfaces import Environment
 from openenv.core.env_server.types import State
 
 try:
-    from ..models import CodeAssessmentAction, CodeAssessmentObservation
+    from ..models import AIResponseEvalAction, AIResponseEvalObservation
 except ImportError:
-    from models import CodeAssessmentAction, CodeAssessmentObservation
+    from models import AIResponseEvalAction, AIResponseEvalObservation
+
+try:
+    from ..analytics import (
+        CoverageMatrix,
+        ErrorForecaster,
+        RiskAggregator,
+        RootCauseAnalyzer,
+        infer_user_persona,
+        score_fairness,
+        score_toxicity,
+    )
+except ImportError:
+    from analytics import (
+        CoverageMatrix,
+        ErrorForecaster,
+        RiskAggregator,
+        RootCauseAnalyzer,
+        infer_user_persona,
+        score_fairness,
+        score_toxicity,
+    )
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1854,7 +1875,7 @@ PROBLEMS: Dict[str, List[Dict]] = {
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Environment
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-class CodeAssessmentEnvironment(Environment):
+class AIResponseEvalEnvironment(Environment):
     """
     AI Response Evaluation Environment — Enhanced Edition.
 
@@ -1906,9 +1927,20 @@ class CodeAssessmentEnvironment(Environment):
         # Injection / format tracking
         self._injection_attempts: int = 0
         self._format_violations: int = 0
+        # Advanced analytics: risk, coverage, RCA, forecasting
+        self._risk_aggregator = RiskAggregator()
+        self._coverage_matrix = CoverageMatrix()
+        self._root_cause_analyzer = RootCauseAnalyzer()
+        self._error_forecaster = ErrorForecaster()
+        self._last_rca_summary: Optional[str] = None
+        self._last_risk_score: float = 0.0
+        self._last_risk_tier: str = "LOW"
+        self._last_user_persona: Dict = {}
+        self._last_scenario_toxicity: float = 0.0
+        self._last_fairness_axes: List[str] = []
 
     # ------------------------------------------------------------------
-    def reset(self, seed: int | None = None) -> CodeAssessmentObservation:
+    def reset(self, seed: int | None = None) -> AIResponseEvalObservation:
         if seed is not None:
             random.seed(seed)
         self._state = State(episode_id=str(uuid4()), step_count=0)
@@ -1932,6 +1964,16 @@ class CodeAssessmentEnvironment(Environment):
         self._rate_last_refill = time.monotonic()
         self._injection_attempts = 0
         self._format_violations = 0
+        # Reset advanced analytics
+        self._risk_aggregator.reset()
+        self._coverage_matrix.reset()
+        self._error_forecaster.reset()
+        self._last_rca_summary = None
+        self._last_risk_score = 0.0
+        self._last_risk_tier = "LOW"
+        self._last_user_persona = {}
+        self._last_scenario_toxicity = 0.0
+        self._last_fairness_axes = []
 
         self._current_problem = random.choice(PROBLEMS["easy"])
         self._used.add(id(self._current_problem))
@@ -1941,7 +1983,7 @@ class CodeAssessmentEnvironment(Environment):
             is_correct=False, partial_credit=0.01, expected_output=None, shaped_reward=0.0,
         )
 
-    def step(self, action: CodeAssessmentAction) -> CodeAssessmentObservation:  # type: ignore[override]
+    def step(self, action: AIResponseEvalAction) -> AIResponseEvalObservation:  # type: ignore[override]
         self._state.step_count += 1
         self._steps_at_level[self._difficulty] = self._steps_at_level.get(self._difficulty, 0) + 1
 
@@ -1982,6 +2024,40 @@ class CodeAssessmentEnvironment(Environment):
                 self._track_missed_dims(answer, problem, stats)
         # Feed result into weakness tracker (used by ProblemGenerator)
         self._weakness_tracker.record(task_type, is_correct, answer, problem)
+        self._error_forecaster.record(task_type, is_correct)
+
+        # ── Advanced analytics: toxicity, fairness, persona, risk, coverage ──
+        scenario_text = problem.get("scenario", "") or ""
+        self._last_scenario_toxicity = score_toxicity(scenario_text)
+        self._last_fairness_axes = score_fairness(scenario_text)
+
+        self._last_user_persona = infer_user_persona(problem, task_type)
+        adv_severity: Optional[str] = None
+        if task_type == "adversarial_check":
+            adv_severity = problem.get("answer_severity")
+
+        risk_score, risk_tier = self._risk_aggregator.score_step(
+            scenario_toxicity=self._last_scenario_toxicity,
+            fairness_axes=self._last_fairness_axes,
+            adversarial_severity=adv_severity,
+            agent_correct=is_correct,
+            persona_risk_weight=float(self._last_user_persona.get("risk_weight", 1.0)),
+        )
+        self._last_risk_score = risk_score
+        self._last_risk_tier = risk_tier
+
+        self._coverage_matrix.record(
+            task_type=task_type,
+            evaluator_persona=self._problem_generator.current_persona().get("name"),
+            user_persona=self._last_user_persona.get("name"),
+            language=problem.get("language", "en"),
+            difficulty_level=problem.get("_difficulty_level"),
+        )
+
+        # Refresh root-cause summary every 4 steps (cheap; uses local state only)
+        if self._state.step_count % 4 == 0:
+            rca = self._root_cause_analyzer.analyze(self._weakness_tracker)
+            self._last_rca_summary = rca["summary"]
 
         expected_str = self._format_expected(task_type, problem)
         self._update_difficulty()
@@ -2014,7 +2090,22 @@ class CodeAssessmentEnvironment(Environment):
         hardest_miss = self._most_missed_dimension(stats)
         extra_flags = flags or {}
 
-        return CodeAssessmentObservation(
+        # Forecast for the upcoming step on the (now-active) task / difficulty
+        next_task = TASK_TYPES[self._difficulty]
+        forecast_p = self._error_forecaster.forecast(next_task, self._difficulty)
+
+        # On the final step, attach a full run-level summary to metadata
+        is_done = self._state.step_count >= self.MAX_STEPS
+        run_summary: Dict[str, Any] = {}
+        if is_done:
+            run_summary = {
+                "risk":      self._risk_aggregator.summary(),
+                "coverage":  self._coverage_matrix.summary(),
+                "forecast":  self._error_forecaster.summary(),
+                "rca":       self._root_cause_analyzer.analyze(self._weakness_tracker),
+            }
+
+        return AIResponseEvalObservation(
             problem_description=TASK_INSTRUCTIONS[task_type],
             difficulty=self._difficulty,
             test_case_input=p["scenario"],
@@ -2029,7 +2120,7 @@ class CodeAssessmentEnvironment(Environment):
             partial_credit=partial_credit,
             problems_solved=self._problems_solved,
             current_streak=self._current_streak,
-            done=self._state.step_count >= self.MAX_STEPS,
+            done=is_done,
             reward=partial_credit,
             task_completion_rate=round(completion_rate, 3),
             avg_partial_credit=round(avg_partial, 3),
@@ -2039,6 +2130,16 @@ class CodeAssessmentEnvironment(Environment):
             problem_generated=bool(p.get("_generated", False)),
             generation_difficulty_level=p.get("_difficulty_level"),
             adversarial_unlocked=self._adversarial_unlocked,
+            # Advanced analytics fields
+            user_persona=self._last_user_persona.get("name"),
+            user_persona_risk_weight=float(self._last_user_persona.get("risk_weight", 1.0)),
+            scenario_toxicity=self._last_scenario_toxicity,
+            scenario_fairness_axes=list(self._last_fairness_axes),
+            risk_score=self._last_risk_score,
+            risk_tier=self._last_risk_tier,
+            coverage_pct=self._coverage_matrix.coverage_pct(),
+            forecast_fail_prob=forecast_p,
+            root_cause_summary=self._last_rca_summary,
             metadata={
                 "shaped_reward": shaped_reward,
                 "total_reward": self._total_reward,
@@ -2047,6 +2148,7 @@ class CodeAssessmentEnvironment(Environment):
                 "difficulty": self._difficulty,
                 "rate_tokens_remaining": round(self._rate_tokens, 2),
                 "weakness_profile": self._weakness_tracker.profile_summary(task_type),
+                "run_summary": run_summary,
                 **extra_flags,
             },
         )

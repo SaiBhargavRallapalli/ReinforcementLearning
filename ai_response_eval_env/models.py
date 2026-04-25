@@ -14,12 +14,12 @@ Four tasks:
   4. Multi-turn Conversation Coherence — consistent, contradictions, context_loss (ultra) [NEW]
 """
 
-from typing import Literal, Optional
+from typing import List, Literal, Optional
 from openenv.core.env_server.types import Action, Observation
 from pydantic import Field
 
 
-class CodeAssessmentAction(Action):
+class AIResponseEvalAction(Action):
     """Action for submitting an evaluation judgment."""
 
     answer: str = Field(
@@ -33,7 +33,7 @@ class CodeAssessmentAction(Action):
     )
 
 
-class CodeAssessmentObservation(Observation):
+class AIResponseEvalObservation(Observation):
     """Observation with scenario, user profile, grading feedback, and analytics."""
 
     problem_description: str = Field(default="", description="Task instructions")
@@ -96,4 +96,48 @@ class CodeAssessmentObservation(Observation):
     adversarial_unlocked: bool = Field(
         default=False,
         description="True once both easy and medium accuracy thresholds have been cleared this episode",
+    )
+
+    # ── Advanced analytics: toxicity, fairness, user persona, risk, coverage,
+    #    forecasting, root-cause (added by analytics.py) ───────────────────────
+    user_persona: Optional[str] = Field(
+        default=None,
+        description=(
+            "User-side persona inferred for this scenario, distinct from the "
+            "evaluator persona. One of: Vulnerable User | Young Minor | "
+            "Adolescent | Elderly User | Non-Native Speaker | Adversarial User | "
+            "Professional | General User."
+        ),
+    )
+    user_persona_risk_weight: float = Field(
+        default=1.0,
+        description="Risk multiplier for the inferred user persona (1.0 = baseline, 2.0 = high vulnerability).",
+    )
+    scenario_toxicity: float = Field(
+        default=0.0,
+        description="Graded toxicity score (0.0-1.0) of the scenario text being graded by the agent.",
+    )
+    scenario_fairness_axes: List[str] = Field(
+        default_factory=list,
+        description="Demographic axes flagged in the scenario: any of gender, race, age, ability, religion, socioeconomic.",
+    )
+    risk_score: float = Field(
+        default=0.0,
+        description="Per-step risk score in [0, 100] blending severity, toxicity, fairness, miss, and persona vulnerability.",
+    )
+    risk_tier: str = Field(
+        default="LOW",
+        description="Risk tier: LOW | MEDIUM | HIGH | CRITICAL.",
+    )
+    coverage_pct: float = Field(
+        default=0.0,
+        description="Percent of (task x evaluator x user x language x difficulty) cells exercised so far.",
+    )
+    forecast_fail_prob: float = Field(
+        default=0.5,
+        description="Forecasted P(failure) for the NEXT step on this task and difficulty.",
+    )
+    root_cause_summary: Optional[str] = Field(
+        default=None,
+        description="Human-readable summary of dominant failure clusters, refreshed periodically.",
     )

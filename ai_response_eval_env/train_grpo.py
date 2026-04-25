@@ -1,8 +1,8 @@
 """
-train_grpo.py — GRPO RL Training with CodeAssessmentEnv
+train_grpo.py — GRPO RL Training with AIResponseEvalEnv
 ========================================================
 Trains a local LLM (Qwen2.5-1.5B-Instruct) using GRPO (Group Relative Policy
-Optimization) with your CodeAssessmentEnv as the reward source.
+Optimization) with your AIResponseEvalEnv as the reward source.
 
 Training technique: GRPO + LoRA via Unsloth
   - LoRA: fine-tunes only ~2% of parameters → fits in 8GB RAM
@@ -29,7 +29,7 @@ Install:
   pip install unsloth trl transformers datasets peft accelerate
   pip install "openenv-core[core]>=0.2.1"
   # Install your env:
-  pip install -e .   (from the code_assessment_env directory)
+  pip install -e .   (from the ai_response_eval_env directory)
 
 Hardware requirement:
   Minimum: 8GB RAM, 2 vCPU (CPU-only training, slow but works)
@@ -79,9 +79,9 @@ LOG_STEPS           = 5
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # TRL-compatible environment wrapper
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-class CodeAssessmentToolEnv:
+class AIResponseEvalToolEnv:
     """
-    Wraps CodeAssessmentEnv for use with TRL's GRPOTrainer.
+    Wraps AIResponseEvalEnv for use with TRL's GRPOTrainer.
 
     TRL's environment_factory protocol:
       - __init__():       initialise state, no arguments
@@ -94,9 +94,9 @@ class CodeAssessmentToolEnv:
     """
 
     def __init__(self):
-        from code_assessment_env import CodeAssessmentAction, CodeAssessmentEnv
-        self._env_class  = CodeAssessmentEnv
-        self._action_class = CodeAssessmentAction
+        from ai_response_eval_env import AIResponseEvalAction, AIResponseEvalEnv
+        self._env_class  = AIResponseEvalEnv
+        self._action_class = AIResponseEvalAction
         self._env        = None
         self.reward      = 0.0
         self._loop       = asyncio.new_event_loop()
@@ -141,9 +141,9 @@ class CodeAssessmentToolEnv:
         if self._env is None:
             return "Error: environment not initialised. Call reset() first."
 
-        from code_assessment_env import CodeAssessmentAction
+        from ai_response_eval_env import AIResponseEvalAction
         try:
-            result = self._run(self._env.step(CodeAssessmentAction(answer=answer)))
+            result = self._run(self._env.step(AIResponseEvalAction(answer=answer)))
             obs    = result.observation
             # Accumulate reward over the episode
             self.reward += float(obs.reward or 0.0)
@@ -473,14 +473,14 @@ def train(args):
                 )
 
     # 6. Create GRPOTrainer with environment
-    print("[INFO] Initialising GRPOTrainer with CodeAssessmentEnv...")
+    print("[INFO] Initialising GRPOTrainer with AIResponseEvalEnv...")
     trainer = GRPOTrainer(
         model=model,
         processing_class=tokenizer,
         reward_funcs=reward_func,
         args=training_args,
         train_dataset=dataset,
-        environment_factory=CodeAssessmentToolEnv,  # YOUR environment as reward source
+        environment_factory=AIResponseEvalToolEnv,  # YOUR environment as reward source
         callbacks=[LogCallback()],
     )
 
@@ -512,7 +512,7 @@ def train(args):
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 def main():
     parser = argparse.ArgumentParser(
-        description="GRPO RL training with CodeAssessmentEnv"
+        description="GRPO RL training with AIResponseEvalEnv"
     )
     parser.add_argument(
         "--model", default=MODEL_NAME,

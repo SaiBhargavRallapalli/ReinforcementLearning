@@ -2,7 +2,7 @@
 """Demo for AI Response Evaluation Environment."""
 
 import asyncio
-from code_assessment_env import CodeAssessmentAction, CodeAssessmentEnv
+from ai_response_eval_env import AIResponseEvalAction, AIResponseEvalEnv
 
 
 async def demo_local():
@@ -10,7 +10,7 @@ async def demo_local():
     print("DEMO: AI Response Evaluation Environment")
     print("=" * 60)
 
-    env = await CodeAssessmentEnv.from_docker_image("code_assessment_env:latest")
+    env = await AIResponseEvalEnv.from_docker_image("ai_response_eval_env:latest")
 
     try:
         result = await env.reset()
@@ -34,7 +34,7 @@ async def demo_local():
 
         for step in range(1, 8):
             answer = demo_answers[step - 1] if step <= len(demo_answers) else "unknown"
-            result = await env.step(CodeAssessmentAction(answer=answer))
+            result = await env.step(AIResponseEvalAction(answer=answer))
             obs = result.observation
 
             print(f"\n{'=' * 60}")
@@ -60,14 +60,14 @@ async def demo_remote():
     print("DEMO: Remote HF Space")
     print("=" * 60)
 
-    env = CodeAssessmentEnv(base_url="https://TulasiSankar-code-assessment-env.hf.space")
+    env = AIResponseEvalEnv(base_url="https://TulasiSankar-ai-response-eval-env.hf.space")
 
     try:
         result = await env.reset()
         obs = result.observation
         print(f"\nTask: {obs.task_type} | Difficulty: {obs.difficulty}")
 
-        result = await env.step(CodeAssessmentAction(answer="incorrect, factual-error"))
+        result = await env.step(AIResponseEvalAction(answer="incorrect, factual-error"))
         obs = result.observation
         print(f"Correct: {'Y' if obs.is_correct else 'N'} | Reward: {result.reward:.2f}")
         print(f"Feedback: {obs.feedback}")

@@ -1,4 +1,4 @@
-# Core dependencies for Code Output Assessment Environment
+# Core dependencies for AI Response Evaluation Environment
 openenv-core>=0.2.2
 pydantic>=2.12.0
 fastapi>=0.135.0

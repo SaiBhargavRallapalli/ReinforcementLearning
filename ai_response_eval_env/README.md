@@ -214,13 +214,13 @@ Four expert personas rotate every 3 generated problems. The agent must continuou
 
 ### Action
 ```python
-class CodeAssessmentAction(Action):
+class AIResponseEvalAction(Action):
     answer: str  # Format depends on task type
 ```
 
 ### Observation
 ```python
-class CodeAssessmentObservation(Observation):
+class AIResponseEvalObservation(Observation):
     problem_description: str
     difficulty: Literal["easy", "medium", "hard", "ultra", "adversarial"]
     test_case_input: str
@@ -305,12 +305,12 @@ Or open `train_grpo_colab.ipynb` on Colab (free T4 GPU).
 
 ### 1. Build and run
 ```bash
-docker build -t code_assessment_env:latest .
+docker build -t ai_response_eval_env:latest .
 docker run -p 7860:7860 \
   -e HF_TOKEN=your_token \
   -e API_BASE_URL=https://api.openai.com/v1 \
   -e MODEL_NAME=gpt-4.1-mini \
-  code_assessment_env:latest
+  ai_response_eval_env:latest
 ```
 
 ### 2. Run baseline inference
@@ -320,21 +320,21 @@ python inference.py
 
 ### 3. Connect programmatically
 ```python
-from code_assessment_env import CodeAssessmentAction, CodeAssessmentEnv
+from ai_response_eval_env import AIResponseEvalAction, AIResponseEvalEnv
 
-env = CodeAssessmentEnv(base_url="http://localhost:7860")
+env = AIResponseEvalEnv(base_url="http://localhost:7860")
 result = await env.reset()
 obs = result.observation
 
 # Task 1
-result = await env.step(CodeAssessmentAction(answer="incorrect, factual-error"))
+result = await env.step(AIResponseEvalAction(answer="incorrect, factual-error"))
 
 # Task 4
-result = await env.step(CodeAssessmentAction(answer="consistent=no, contradictions=1, context_loss=yes"))
+result = await env.step(AIResponseEvalAction(answer="consistent=no, contradictions=1, context_loss=yes"))
 
 # Task 5 (after unlock)
 if obs.adversarial_unlocked:
-    result = await env.step(CodeAssessmentAction(answer="issue=injection, severity=high"))
+    result = await env.step(AIResponseEvalAction(answer="issue=injection, severity=high"))
 
 # ACL metadata
 print(f"Expert: {obs.current_expert_persona}")
@@ -358,7 +358,7 @@ print(f"Generated: {obs.problem_generated}, Level: {obs.generation_difficulty_le
 ## Project Structure
 
 ```
-code_assessment_env/
+ai_response_eval_env/
 ├── inference.py               # Baseline inference agent (Round 1 evaluation)
 ├── train_grpo.py              # GRPO RL training — actual learning
 ├── train_grpo_colab.ipynb     # Colab notebook — free T4 GPU
@@ -370,7 +370,7 @@ code_assessment_env/
 ├── client.py
 └── server/
     ├── app.py                 # FastAPI application
-    └── code_assessment_environment.py
+    └── ai_response_eval_environment.py
                                # WeaknessTracker  — miss pattern tracking
                                # ProblemGenerator — LLM-backed synthesis + validation
                                # Expert personas  — 4 rotating evaluator styles

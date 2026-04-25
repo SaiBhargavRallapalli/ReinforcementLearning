@@ -74,15 +74,15 @@ for task in tasks['tasks']:
     print(f"    Range: {min_score:.2f} to {max_score:.2f}")
 
 print("\n3. Testing episode progression (all tasks reachable)...")
-from server.code_assessment_environment import CodeAssessmentEnvironment
-from models import CodeAssessmentAction
+from server.ai_response_eval_environment import AIResponseEvalEnvironment
+from models import AIResponseEvalAction
 
-env = CodeAssessmentEnvironment()
+env = AIResponseEvalEnvironment()
 obs = env.reset()
 
 tasks_seen = set()
 for step in range(15):  # MAX_STEPS = 15
-    obs = env.step(CodeAssessmentAction(answer="test"))
+    obs = env.step(AIResponseEvalAction(answer="test"))
     tasks_seen.add(obs.task_type)
     
 print(f"  ✓ Tasks seen during episode: {sorted(tasks_seen)}")

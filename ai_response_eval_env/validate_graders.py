@@ -7,16 +7,16 @@ import os
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from server.code_assessment_environment import (
-    CodeAssessmentEnvironment,
+from server.ai_response_eval_environment import (
+    AIResponseEvalEnvironment,
     TASK_TYPES,
     PROBLEMS
 )
-from models import CodeAssessmentAction
+from models import AIResponseEvalAction
 
 def test_score_ranges():
     """Test that all graders return scores strictly in (0, 1)."""
-    env = CodeAssessmentEnvironment()
+    env = AIResponseEvalEnvironment()
     
     print("=" * 70)
     print("GRADER SCORE RANGE VALIDATION")
@@ -72,7 +72,7 @@ def test_score_ranges():
     print("TESTING EPISODE PROGRESSION")
     print("=" * 70)
     
-    env = CodeAssessmentEnvironment()
+    env = AIResponseEvalEnvironment()
     obs = env.reset()
     
     print(f"\nInitial state: {obs.task_type} ({obs.difficulty})")
@@ -83,7 +83,7 @@ def test_score_ranges():
     
     for step in range(env.MAX_STEPS):
         prev_task = obs.task_type
-        obs = env.step(CodeAssessmentAction(answer="test"))
+        obs = env.step(AIResponseEvalAction(answer="test"))
         
         if obs.task_type != prev_task:
             task_changes.append(f"  Step {step + 1}: {prev_task} → {obs.task_type}")
