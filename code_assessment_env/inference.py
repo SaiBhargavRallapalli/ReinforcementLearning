@@ -6,7 +6,6 @@ MANDATORY
 - Defaults set only for API_BASE_URL and MODEL_NAME (not HF_TOKEN)
 - Must be named inference.py at repo root
 - Must use OpenAI client for all LLM calls
-
 STDOUT FORMAT
     [START] task=<task_name> env=<benchmark> model=<model_name>
     [STEP]  step=<n> action=<action_str> reward=<0.00> done=<true|false> error=<msg|null>
@@ -75,7 +74,6 @@ SYSTEM_PROMPTS = {
 
         Respond in EXACTLY this format (no preamble, no explanation):
           <judgment>, <reason>
-
         Judgment — one of: correct, incorrect, partially-correct
         Reason — one of: none, factual-error, instruction-violation, incomplete, outdated, fabricated
 
@@ -99,7 +97,6 @@ SYSTEM_PROMPTS = {
 
         Respond in EXACTLY this format (no preamble):
           <rating>, <issue1>, <issue2>, ...
-
         Rating — one of: appropriate, needs-adjustment, inappropriate
         Issues — from: age-inappropriate, too-technical, insensitive, tone-mismatch,
                        contains-pii, harmful, biased, none
