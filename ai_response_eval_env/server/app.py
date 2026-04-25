@@ -24,19 +24,19 @@ except Exception as e:  # pragma: no cover
     ) from e
 
 try:
-    from ..models import CodeAssessmentAction, CodeAssessmentObservation
-    from .code_assessment_environment import CodeAssessmentEnvironment, TASK_TYPES, TASK_INSTRUCTIONS, PROBLEMS
+    from ..models import AIResponseEvalAction, AIResponseEvalObservation
+    from .ai_response_eval_environment import AIResponseEvalEnvironment, TASK_TYPES, TASK_INSTRUCTIONS, PROBLEMS
 except (ImportError, ModuleNotFoundError):
-    from models import CodeAssessmentAction, CodeAssessmentObservation
-    from server.code_assessment_environment import CodeAssessmentEnvironment, TASK_TYPES, TASK_INSTRUCTIONS, PROBLEMS
+    from models import AIResponseEvalAction, AIResponseEvalObservation
+    from server.ai_response_eval_environment import AIResponseEvalEnvironment, TASK_TYPES, TASK_INSTRUCTIONS, PROBLEMS
 
 
 # Create the base app with OpenEnv endpoints
 app = create_app(
-    CodeAssessmentEnvironment,
-    CodeAssessmentAction,
-    CodeAssessmentObservation,
-    env_name="code_assessment_env",
+    AIResponseEvalEnvironment,
+    AIResponseEvalAction,
+    AIResponseEvalObservation,
+    env_name="ai_response_eval_env",
     max_concurrent_envs=10,
 )
 
@@ -105,7 +105,7 @@ async def grade_task(payload: dict):
     else:
         problem = _random.choice(problems)
 
-    env = CodeAssessmentEnvironment()
+    env = AIResponseEvalEnvironment()
     env._difficulty = difficulty
     is_correct, score, feedback = env._grade(task_id, answer, problem)
 
